@@ -1,0 +1,15 @@
+# data
+*.txt
+*.csv
+collaboration_network.edgelist
+
+# special
+**/__pycache__
+
+data/
+
+# objects
+objects/
+
+# model checkpoints
+checkpoints/
