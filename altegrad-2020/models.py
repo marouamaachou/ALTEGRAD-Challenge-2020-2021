@@ -10,13 +10,13 @@
 
 import os
 import csv
-from networkx.algorithms.assortativity.correlation import attribute_ac
 import plsa
 import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import pickle as pkl
+import pandas as pd
 import numpy as np
 import networkx as nx
 
@@ -29,23 +29,35 @@ class AuthorConvNet(nn.Module):
     """ Class to implement the network architecture as proposed in
         "Non Linear Text Regression With Deep Convolutional Neural Network",
         Bitvai and Cohn (https://www.aclweb.org/anthology/P15-2030.pdf)
+
+        After training, checkpoints may be found at ModelAuthorConvolution\\checkpoints ;
+        these can be loaded with the load_model method
     """
 
     def __init__(
         self,
-        embedding_dim,
-        hidden_dim=300,
+        word_embedding_dim,
+        hidden_dim=200,
         dropout_rate=0.3,
         min_conv_size=1,
         max_conv_size=4,
         criterion=nn.L1Loss(),
         optimizer = optim.Adadelta,
-        path_to_checkpoints="ModelAuthorConvolution\\checkpoints"
+        path_to_checkpoints="ModelAuthorConvolution\\checkpoints",
+        use_graph=False,      # use node embeddings (True) or not
+        node_embedding_dim=None     # should be provided if use_graph=True,
+                                    # otherwise an error will be raised
     ):
         """ This architecture performs 2D convolutions using 1D kernels with 
             size min_conv_size, min_conv_size+1, ..., max_conv_size
         """
+        
         super(AuthorConvNet, self).__init__()
+        if use_graph:
+            assert node_embedding_dim is not None, (
+                "if use_graph is True, a valid embedding_dim integer should be provided"
+            )
+        if not node_embedding_dim: node_embedding_dim = 0
         self.criterion = criterion
         self.optimizer = optimizer
         self.dropout = nn.Dropout(dropout_rate)
@@ -53,29 +65,43 @@ class AuthorConvNet(nn.Module):
         self.max_conv_size = max_conv_size
         self.max_pool = lambda x: torch.max(x, dim=len(x.size())-2)[0]    # max_pool here is the max over the input raws
 
-        self.embedding_dim = embedding_dim
+        self.word_embedding_dim = word_embedding_dim
+        self.node_embedding_dim = node_embedding_dim
         self.hidden_dim = hidden_dim
         # min_conv_size,...,max_conv_size 1D convolutional filters of size 1,...,max_conv_size
         self.convs = nn.ModuleList(
             [nn.Conv2d(1,1,(i,1)) for i in range(min_conv_size, self.max_conv_size+1)]
         )
         self.relu = nn.ReLU()
-        self.linear1 = nn.Linear(embedding_dim*(max_conv_size-min_conv_size+1), hidden_dim)
+            
+        self.linear1 = nn.Linear(
+            word_embedding_dim * (max_conv_size-min_conv_size+1) + node_embedding_dim,
+            hidden_dim
+        )
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.linear3 = nn.Linear(hidden_dim, 1)
 
-        self.path_to_checkpoints=path_to_checkpoints
+        self.path_to_checkpoints = path_to_checkpoints
+        self.use_graph = use_graph
 
-    def forward(self, x):
+    def forward(self, x, x_node=None):
+        if self.use_graph:
+            assert x_node is not None, (
+                "x_node argument should be provided as a batch of node embeddings"
+            )
         z = x.unsqueeze(1)   # second dimension corresponds to in_channels, 
-                             # so it should be 1 (1st is batch  size)
+                             # so it should be 1 (1st is batch size)
         C = []
-        for convolution in self.convs:          # apply convolution for each kernel size between 1 and q
+        for convolution in self.convs:       # apply convolution for each kernel size between min and max
             conv = convolution(z).squeeze()
             C.append(conv)
         H = [self.relu(conv) for conv in C]
         p = [self.max_pool(h) for h in H]
-        p = torch.cat(p, dim=len(p[0].size())-1)
+        p = torch.cat(p, dim=-1)
+        # if use_graph, concatenate author convolution embedding with author node embedding
+        if self.use_graph:
+            p = torch.cat((p, x_node), dim=-1)
+
         # multi-layer net
         out = self.linear1(p)
         out = self.dropout(out)
@@ -150,10 +176,13 @@ class AuthorConvNet(nn.Module):
                 
                 for i in range(0, n, batch_size):
                     index_batch = batch_indexes[i:(i+batch_size)]
-                    input_batch = data.make_input_batch(index_batch)
+                    abstract_batch, node_batch = data.make_input_batch(index_batch)
                     target_batch = targets[index_batch]
-                    
-                    output_batch = self.forward(input_batch)
+                    # use the node_batch
+                    if self.use_graph:
+                        output_batch = self.forward(abstract_batch, node_batch)
+                    else:
+                        output_batch = self.forward(abstract_batch)
                     loss = criterion(output_batch.flatten(), target_batch)
                     total_loss += loss.item()
                     tqdm_dict['loss'] = total_loss / (i+1)
@@ -169,12 +198,15 @@ class AuthorConvNet(nn.Module):
                 print("model checkpoint saved")
         self.save_model(save_file=save_file)
 
-    def predict(self, author_matrix):
+    def predict(self, author_matrix, node_embedding=None):
         """ predict for a single author embedding matrix """
 
+        if self.use_graph:
+            assert node_embedding, "node_embedding argument should be provided as an embedding array"
+            emb = node_embedding.unsqueeze(dim=0)
         with torch.no_grad():
             mat = author_matrix.unsqueeze(dim=0)    # make it a batch of size 1
-            prediction = self.forward(mat)
+            prediction = self.forward(mat, emb)
         return prediction
     
     def existing_model(self):
@@ -326,8 +358,8 @@ class DeepWalk:
         model.build_vocab(walks)
         model.train(walks, total_examples=model.corpus_count, epochs=5)
         dic = {}
-        for word in model.wv.vocab.keys():
-            dic[word] = model.wv[word].tolist()
+        for id in model.wv.vocab.keys():
+            dic[id] = model.wv[id].tolist()
         self.embeddings_dic = dic.copy()
         self.save_model()
         return model
@@ -353,5 +385,174 @@ class DeepWalk:
             f = open(self.output_file, "r")
         dic = json.load(f)
         self.embeddings_dic = dic.copy()
+        self.embedding_dim = len(list(dic.values())[0])
         f.close()
         return dic
+
+
+
+
+
+
+class GNN(nn.Module):
+    """ Fully connected neural net with node embedding input
+    """
+
+    def __init__(
+        self,
+        embedding_dim,
+        hidden_dim=200,
+        criterion=nn.L1Loss,
+        optimizer=optim.Adam,
+        dropout_rate=0.3,
+        path_to_checkpoints="ModelGNN\\checkpoints"
+    ):
+        super(GNN, self).__init__()
+        self.dropout = nn.Dropout(dropout_rate)
+        self.criterion = criterion
+        self.optimizer = optimizer
+
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+
+        self.linear1 = nn.Linear(embedding_dim, hidden_dim)
+        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear3 = nn.Linear(hidden_dim, 1)
+        self.relu = nn.ReLU()
+
+        self.path_to_checkpoint = path_to_checkpoints
+
+    def forward(self, x):
+        out = self.linear1(x)
+        out = self.dropout(out)
+        out = self.relu(out)
+        
+        out = self.linear2(x)
+        out = self.dropout(out)
+        out = self.relu(out)
+        
+        out = self.linear3(x)
+        return out
+
+    def set_optimizer(self):
+        params = self.parameters()
+        self.optimizer = self.optimizer(params)
+        return self.optimizer
+
+    def save_model(
+        self,
+        path=None,
+        save_file="GNN_checkpoint.pt",
+    ):
+        if path:
+            torch.save(self.state_dict(), path + "\\" + save_file)
+        else:
+            torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
+
+    def load_model(
+        self,
+        path=None,
+        load_file="GNN_checkpoint.pt",
+    ):
+        if path:
+            self.load_state_dict(torch.load(path + "\\" + load_file))
+        else:
+            self.load_state_dict(torch.load(self.path_to_checkpoints + "\\" + load_file))
+
+    def make_inputs_targets(input_file="node_embeddings.json", target_file="train.csv"):
+        """ make up inputs and targets list from input and target files so that
+            both are correctly aligned
+        """
+
+        inputs_list, targets_list = [], []
+        with open(input_file, 'r') as f:
+            emb_dic = json.load(f)
+        target_df = pd.read_csv(target_file).set_index("authorID")
+        for auth, emb in emb_dic.items():
+            auth = int(auth)
+            try:
+                h_index = target_df[auth]['h_index']
+            except KeyError:
+                continue
+            inputs_list.append(torch.tensor(emb))
+            targets_list.append(h_index)
+        return inputs_list, targets_list
+        
+    def make_input_batch(self, batch_indexes, inputs_list):
+        batch = torch.empty(size=(len(batch_indexes), inputs_list.size(0), inputs_list.size(1)))
+        for i, ind in enumerate(batch_indexes):
+            batch[i] = inputs_list[ind]
+        return batch
+
+    def fit(
+        self,
+        inputs_list,
+        targets_list,
+        n_epochs=15,
+        batch_size=64,
+        save_checkpoint_every=5,
+        save_file="author_conv_checkpoint.pt",
+    ):
+        """ train the network on the training set [inputs, targets]
+
+            Args:
+                n_epochs: number of epochs to go through for the training
+                batch_size: size of the batches to use (batch optimisation)
+                save_checkpoint_every: save model.state_dict() checkpoint after
+            this number of epochs (should be smaller than n_epochs)
+                inputs_list: a list of node embedding arrays
+                targets_list: a list of h-index integers
+        """
+
+        optimizer = self.set_optimizer()
+        criterion = self.criterion
+
+        targets = torch.LongTensor(targets_list).float()
+
+        n = len(targets)
+        n_batch = n // batch_size + 1 * (n % batch_size != 0)
+        tqdm_dict = {"loss": 0.0}
+
+        for epoch in range(n_epochs):
+            
+            with tqdm(total=n_batch, unit_scale=True, postfix={'loss':0.0},#,'test loss':0.0},
+                    desc="Epoch : %i/%i" % (epoch+1, n_epochs), ncols=100) as pbar:
+                
+                batch_indexes = torch.randperm(n)
+                total_loss = 0.0
+                
+                for i in range(0, n, batch_size):
+                    index_batch = batch_indexes[i:(i+batch_size)]
+                    input_batch = self.make_input_batch(index_batch, inputs_list)
+                    target_batch = targets[index_batch]
+                    # use the node_batch
+                    output_batch = self.forward(input_batch)
+                    loss = criterion(output_batch.flatten(), target_batch)
+                    total_loss += loss.item()
+                    tqdm_dict['loss'] = total_loss / (i+1)
+                    pbar.set_postfix(tqdm_dict)
+
+                    # compute gradients and take an optimisation step
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    pbar.update(1)
+            if (epoch + 1) % save_checkpoint_every == 0:
+                self.save_model(save_file=save_file)
+                print("model checkpoint saved")
+        self.save_model(save_file=save_file)
+
+    def predict(self, node_embedding):
+        """ predict for a single node embedding vector """
+
+        with torch.no_grad():
+            emb = node_embedding.unsqueeze(dim=0)    # make it a batch of size 1
+            prediction = self.forward(emb)
+        return prediction
+
+    def existing_model(self):
+        """ return True if a checkpoint exists in path_to_checkpoint, False otherwise """
+
+        abspath = "\\".join(os.path.abspath(__file__).split("\\")[:-1])
+        if os.listdir(abspath + "\\" + self.path_to_checkpoints): return True
+        return False

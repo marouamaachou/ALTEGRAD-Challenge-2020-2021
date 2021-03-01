@@ -8,7 +8,7 @@ from random import shuffle
 
 path = "\\".join(os.path.abspath(__file__).split("\\")[:-2])
 sys.path.insert(0, path)
-from models import AuthorConvNet
+from models import AuthorConvNet, DeepWalk
 from dummy.utils import check_running_file
 from ModelAuthorConvolution.word_embeddings import *
 from ModelAuthorConvolution.author_matrices import *
@@ -32,7 +32,6 @@ class AuthorConvData:
         max_input_size=500,
         input_file="author_abstracts.txt",
         target_file="train.csv",
-        node_file="node_embeddings.txt",
         path_to_data = "ModelAuthorConvolution\\data"
     ):
         self.max_input_size = max_input_size
@@ -50,9 +49,8 @@ class AuthorConvData:
         except AttributeError as e:
             print("no embeddings have been loaded yet ; run load_word_embeddings first")
             raise e
-        embedding_dim = self.embedding_dim
         abstract_list = full_abstract.split(",")
-        matrix = torch.zeros(size=(self.max_input_size, embedding_dim))
+        matrix = torch.zeros(size=(self.max_input_size, self.word_embedding_dim))
         for i, word in enumerate(abstract_list):
             if i >= self.max_input_size: break
             try:
@@ -63,30 +61,47 @@ class AuthorConvData:
         return matrix
 
     def load_input_target_list(self):
-        """ load the input and target data so that they are correctly aligned """
+        """ load the input and target data so that they are correctly aligned,
+            store them as list attributes
+
+            In the latest version, the input data is made out of two parts,
+            the concatenated abtracts on the one hand and the node embeddings
+            on the other hand
+        """
 
         f_input = open(self.input_file, "r", newline='', encoding="utf8")
+        try:
+            node_embeddings = self.node_embeddings
+        except AttributeError:
+            self.load_node_embeddings()
+            node_embeddings = self.node_embeddings
         target_dic = self.load_target_file()
     
-        list_input = []
+        list_input_abs = []
+        list_input_nodes = []
         list_target = []
         for l in f_input:
             auth, full_abstract = l.split(":")
             auth = int(auth)
             try:
                 list_target.append(target_dic[auth])
+                list_input_nodes.append(node_embeddings[str(auth)])
             except KeyError:
                 continue
             full_abstract = full_abstract[:-1]      # skip '\n' char
-            list_input.append(full_abstract)
+            list_input_abs.append(full_abstract)
         f_input.close()
-        self.list_input = list_input
+        self.inputs = (list_input_abs, list_input_nodes)
         self.list_target = list_target
-        return list_input, list_target
+        return (list_input_abs, list_input_nodes), list_target
 
     def train_test_split(self, ratio=0.8):
+        """ split data into train and test parts ; for author matrices only
+            (does not work for author nodes)
+        """
+
         try:
-            list_input, list_target = self.list_input, self.list_target
+            list_input, list_target = self.inputs[0], self.list_target
         except AttributeError:
             list_input, list_target = self.load_input_target_list()
         random_indexes = list(range(len(list_target)))
@@ -106,25 +121,40 @@ class AuthorConvData:
                 list_input_test, list_target_test)
 
     def make_input_batch(self, batch_indexes):
-        """ return an array of embbedding matrices with the batch indexes """
+        """ return an array of embbedding matrices with the corresponding batch indexes,
+            along with the node embeddings for the corresponding indexes
+        """
         
-        to_return = torch.empty(size=(len(batch_indexes), self.max_input_size, self.embedding_dim))
+        word_matrix = torch.empty(size=(len(batch_indexes), self.max_input_size, self.word_embedding_dim))
+        node_matrix = torch.empty(size=(len(batch_indexes), self.node_embedding_dim))
         for i, index in enumerate(batch_indexes):
-            full_abstract = self.list_input[index]
-            to_return[i] = self.make_embedding_matrix(full_abstract)
-        return to_return
+            full_abstract = self.inputs[0][index]
+            node_embedding = torch.tensor(self.inputs[1][index])
+            node_matrix[i] = node_embedding
+            word_matrix[i] = self.make_embedding_matrix(full_abstract)
+        return (word_matrix, node_matrix)
 
     def load_word_embeddings(self, file="word_embeddings.json"):
-        with open(self.path_to_data + "\\" + file, "r") as f:
-            dic = json.load(f)
-        self.word_embeddings = dic
+        try:
+            with open(self.path_to_data + "\\" + file, "r") as f:
+                dic = json.load(f)
+        except FileNotFoundError as e:
+            print("No {} found ; run the function make_embeddings of "
+                        "the word_embeddings.py file first".format(file))
+            raise e
+        self.word_embeddings = dic.copy()
         dim = len(list(dic.values())[0])
         self.word_embedding_dim = dim
 
     def load_node_embeddings(self, file="node_embeddings.json"):
-        with open(file, "r") as f:
-            dic = json.load(f)
-        self.node_embeddings = dic
+        try:
+            with open(file, "r") as f:
+                dic = json.load(f)
+        except FileNotFoundError() as e:
+            print("No {} found ; run the function DeepWalk.deepwalk of "
+                        "the models.py file first".format(file))
+            raise e
+        self.node_embeddings = dic.copy()
         dim = len(list(dic.values())[0])
         self.node_embedding_dim = dim
 
@@ -201,18 +231,25 @@ if __name__ == "__main__":
     # whether to train the model or not
     TRAIN = True
 
+    # whether to make predictions or not
+    MAKE_PREDICTIONS = True
+
     # should run from "altegrad-2020"
     TO_RUN_FROM = "altegrad-2020"
     if not check_running_file(TO_RUN_FROM):
         raise OSError("the file should run from \"{}\"".format(TO_RUN_FROM))
 
-    # check if embeddings have been created, else create them
+    # check if word embeddings have been created, else create them
     if not check_if_exists():
-        make_embeddings(make_vocab=True)
+        make_embeddings(make_sentences=True)
 
     # check if author_abstracts.txt file exists, else create it
     if not os.path.exists("author_abstracts.txt"):
         concatenate_abstracts()
+    
+    # check if node_embeddings.json file exists, else create it
+    if not os.path.exists("node_embeddings.json"):
+        DeepWalk().deepwalk()
 
     # prepare data
     data = AuthorConvData()
@@ -223,10 +260,12 @@ if __name__ == "__main__":
         data.load_input_target_list()
         print("done.")
 
-    embedding_dim = data.word_embedding_dim
+    word_embedding_dim = data.word_embedding_dim
+    node_embedding_dim = data.node_embedding_dim
 
     # launch network
-    model = AuthorConvNet(embedding_dim=embedding_dim, min_conv_size=1, max_conv_size=4, hidden_dim=200)
+    model = AuthorConvNet(word_embedding_dim=word_embedding_dim, min_conv_size=1, max_conv_size=4,
+                            use_graph=True, node_embedding_dim=node_embedding_dim)
     if not model.existing_model():
         TRAIN = True
     
@@ -234,19 +273,21 @@ if __name__ == "__main__":
     if TRAIN:
         print("fitting model")
         model.train()
-        CHECKPOINT_FILE = "author_conv_checkpoint_8.pt"
-        model.fit(data=data, n_epochs=15, batch_size=64,
+        CHECKPOINT_FILE = "author_conv_checkpoint_9.pt"
+        model.fit(data=data, n_epochs=15, batch_size=32,
                     save_file=CHECKPOINT_FILE)
         
     else:
-        TO_LOAD = "author_conv_checkpoint_8.pt"
+        TO_LOAD = "author_conv_checkpoint_9.pt"
         model.load_model(load_file=TO_LOAD)
+        print("successfully loaded {}".format(TO_LOAD))
 
     # build up the predictions and put it in a csv file
-    CSV_OUTPUT = "test_predictions_8.csv"
-    model.eval()
-    make_predictions(model, data, output_file=CSV_OUTPUT)
+    CSV_OUTPUT = "test_predictions_9.csv"
+    if MAKE_PREDICTIONS:
+        model.eval()
+        make_predictions(model, data, output_file=CSV_OUTPUT)
 
     FILES_TO_TEST = [
-        "test_predictions_8.csv"
+        "test_predictions_9.csv"
     ]
