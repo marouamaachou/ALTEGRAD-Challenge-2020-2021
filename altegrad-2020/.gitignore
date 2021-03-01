@@ -1,6 +1,7 @@
 # data
 *.txt
 *.csv
+*.json
 collaboration_network.edgelist
 
 # special

@@ -8,6 +8,7 @@ import os
 import re
 import ast
 import gensim
+from gensim.models import word2vec
 import numpy as np
 
 from nltk.corpus import stopwords
@@ -77,34 +78,23 @@ def sentences2list():
                 sentences.append(sentence)
     return sentences
 
-def make_vocab(sentences):
-    """ store vocabulary in a list in a json file and return it """
-
-    print("collecting vocab...")
-    vocab = []
-    for sentence in sentences:
-        for word in sentence:
-            if not word in vocab and word.isalpha():
-                vocab.append(word)
-    with open(os.path.join(PATH_TO_DATA, "vocab.json"), 'w') as f:
-        json.dump(vocab, f)
-    return vocab
-
 # learn word embeddings
-def Word2Vec(sentences, size=50):
+def Word2Vec(sentences, size=100, sg=1):
     """ train a gensim Word2Vec model with embedding dimension = size and return it """
 
     print('learning embeddings...')
-    model = gensim.models.Word2Vec(sentences, min_count=5, size=size)
+    model = gensim.models.Word2Vec(window=6, min_count=3, size=size, workers=8, sg=sg)
+    model.build_vocab(sentences)
+    model.train(sentences, total_examples=model.corpus_count, epochs=5)
     print('done learning.')
     return model
 
 # store the embeddings
-def store_embeddings_as_json(model, vocab):
+def store_embeddings_as_json(model):
     print('storing as json dictionnary...')
     f = open(os.path.join(PATH_TO_DATA, "word_embeddings.json"),"w")
     word_vectors = {}
-    for word in vocab:
+    for word in model.wv.vocab.keys():
         try:
             word_vectors[word] = model.wv[word].tolist()
         except KeyError:
@@ -112,33 +102,33 @@ def store_embeddings_as_json(model, vocab):
     json.dump(word_vectors, f)
     f.close()
 
-def store_embeddings_as_txt(model, vocab):
+def store_embeddings_as_txt(model):
     print('storing as text...')
     f = open(os.path.join(PATH_TO_DATA, "word_embeddings.txt"),"w",encoding='utf8')
-    for word in vocab:
+    for word in model.wv.vocab.keys():
         try:
-            f.write(word+":"+np.array2string(model.wv[word], formatter={'float_kind':lambda x: "%.8f" % x})+"\n")
+            f.write(word+":"+np.array2string(model.wv[word],
+                        formatter={'float_kind':lambda x: "%.8f" % x})+"\n")
         except KeyError:
             pass
     f.close()
 
-def store_embeddings(model, vocab):
-    store_embeddings_as_json(model, vocab)
-    store_embeddings_as_txt(model, vocab)
+def store_embeddings(model):
+    store_embeddings_as_json(model)
+    store_embeddings_as_txt(model)
 
 def check_if_exists():
     abspath = os.path.abspath(__file__).split("\\")[:-1]
     abspath.append("data")
     abspath = "\\".join(abspath) + "\\"
-    files_to_check = [
+    files_to_check = [  
         "abstracts_sentences.txt",
-        "vocab.json",
         "word_embeddings.json",
         "word_embeddings.txt"
     ]
     return all([os.path.exists(abspath + f) for f in files_to_check])
 
-def make_embeddings(make_sentences=False, make_vocab=False, embedding_dim=50):
+def make_embeddings(embedding_dim=100, make_sentences=False):
     """ cascade the previous functions in order to create the embeddings data """
 
     if make_sentences: write_sentences()
@@ -147,9 +137,5 @@ def make_embeddings(make_sentences=False, make_vocab=False, embedding_dim=50):
     except ModuleNotFoundError:
         write_sentences()
         sentences = sentences2list()
-    if make_vocab: vocab = make_vocab(sentences)
-    else:
-        with open(os.path.join(PATH_TO_DATA, "vocab.json"), "r") as f:
-            vocab = json.load(f)
     model = Word2Vec(sentences, size=embedding_dim)
-    store_embeddings(model, vocab)
+    store_embeddings(model)

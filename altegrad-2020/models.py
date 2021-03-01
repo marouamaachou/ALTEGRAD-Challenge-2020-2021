@@ -1,11 +1,26 @@
+""" In this file, we develop the classes associated to the models
+    we experiments.
+
+    Models currently available:
+        Author Convolutions ; AuthorConvNet
+        PLSA ; PLSA (obsolete)
+        Deep Walk ; DeepWalk
+"""
+
+
 import os
 import csv
+from networkx.algorithms.assortativity.correlation import attribute_ac
 import plsa
+import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import pickle as pkl
+import numpy as np
+import networkx as nx
 
+from gensim.models import Word2Vec
 from tqdm import tqdm
 
 
@@ -21,25 +36,31 @@ class AuthorConvNet(nn.Module):
         embedding_dim,
         hidden_dim=300,
         dropout_rate=0.3,
-        max_conv_size=3,
+        min_conv_size=1,
+        max_conv_size=4,
         criterion=nn.L1Loss(),
         optimizer = optim.Adadelta,
         path_to_checkpoints="ModelAuthorConvolution\\checkpoints"
     ):
-        """ This architecture performs 2D convolutions using 1D kernels with size 1,...,max_conv_size """
+        """ This architecture performs 2D convolutions using 1D kernels with 
+            size min_conv_size, min_conv_size+1, ..., max_conv_size
+        """
         super(AuthorConvNet, self).__init__()
         self.criterion = criterion
         self.optimizer = optimizer
         self.dropout = nn.Dropout(dropout_rate)
+        self.min_conv_size = min_conv_size
         self.max_conv_size = max_conv_size
         self.max_pool = lambda x: torch.max(x, dim=len(x.size())-2)[0]    # max_pool here is the max over the input raws
 
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        # max_conv_size 1D convolutional filters of size 1,...,max_conv_size
-        self.convs = [nn.Conv2d(1,1,(i,1)) for i in range(1, self.max_conv_size+1)]
+        # min_conv_size,...,max_conv_size 1D convolutional filters of size 1,...,max_conv_size
+        self.convs = nn.ModuleList(
+            [nn.Conv2d(1,1,(i,1)) for i in range(min_conv_size, self.max_conv_size+1)]
+        )
         self.relu = nn.ReLU()
-        self.linear1 = nn.Linear(embedding_dim*max_conv_size, hidden_dim)
+        self.linear1 = nn.Linear(embedding_dim*(max_conv_size-min_conv_size+1), hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.linear3 = nn.Linear(hidden_dim, 1)
 
@@ -72,17 +93,25 @@ class AuthorConvNet(nn.Module):
         self.optimizer = self.optimizer(params)
         return self.optimizer
 
-    def save_model(self, path=None, file_name="author_conv_checkpoint.pt"):
+    def save_model(
+        self,
+        path=None,
+        save_file="author_conv_checkpoint.pt",
+    ):
         if path:
-            torch.save(self.state_dict(), path + "\\" + file_name)
+            torch.save(self.state_dict(), path + "\\" + save_file)
         else:
-            torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + file_name)
+            torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
 
-    def load_model(self, path=None, file_name="author_conv_checkpoint.pt"):
+    def load_model(
+        self,
+        path=None,
+        load_file="author_conv_checkpoint.pt",
+    ):
         if path:
-            self.load_state_dict(torch.load(path + "\\" + file_name))
+            self.load_state_dict(torch.load(path + "\\" + load_file))
         else:
-            self.load_state_dict(torch.load(self.path_to_checkpoints + "\\" + file_name))
+            self.load_state_dict(torch.load(self.path_to_checkpoints + "\\" + load_file))
             
     def fit(
         self,
@@ -90,7 +119,7 @@ class AuthorConvNet(nn.Module):
         n_epochs=10,
         batch_size=64,
         save_checkpoint_every=5,
-        save_file="author_conv_checkpoint.pt"
+        save_file="author_conv_checkpoint.pt",
     ):
         """ train the network on the training set [inputs, targets]
 
@@ -136,9 +165,9 @@ class AuthorConvNet(nn.Module):
                     optimizer.step()
                     pbar.update(1)
             if (epoch + 1) % save_checkpoint_every == 0:
-                self.save_model()
+                self.save_model(save_file=save_file)
                 print("model checkpoint saved")
-        self.save_model(file_name=save_file)
+        self.save_model(save_file=save_file)
 
     def predict(self, author_matrix):
         """ predict for a single author embedding matrix """
@@ -154,7 +183,6 @@ class AuthorConvNet(nn.Module):
         abspath = "\\".join(os.path.abspath(__file__).split("\\")[:-1])
         if os.listdir(abspath + "\\" + self.path_to_checkpoints): return True
         return False
-
 
 
 
@@ -184,6 +212,7 @@ class PLSA:
         f_out.close()
 
     def make_corpus(self):
+        print("building corpus up...")
         try:
             corpus_ = plsa.corpus.Corpus.from_csv(
                 self.input_file, pipeline=plsa.Pipeline(plsa.preprocessors.to_lower)
@@ -201,8 +230,9 @@ class PLSA:
             corpus_ = self.corpus_
         except AttributeError:
             corpus_ = self.make_corpus()
+        plsa_ = plsa.algorithms.plsa.PLSA(corpus=corpus_, n_topics=n_topics, tf_idf=True)
         print("computing PLSA for the corpus...")
-        plsa_ = plsa.PLSA(corpus=corpus_, n_topics=n_topics, tf_idf=True)
+        plsa_.fit()
         print("done.")
         topic_embeddings = plsa_.topic_given_doc.T
         self.topic_embeddings = topic_embeddings
@@ -214,3 +244,114 @@ class PLSA:
 
         with open(output_file, "wb") as f:
             pkl.dump(embeddings, f)
+
+
+
+
+
+
+class DeepWalk:
+    """ Class to implement the deep walk algorithm """
+
+    def __init__(
+        self,
+        n_walks=10,
+        walk_length=30,
+        window_size=6,
+        embedding_dim=100,
+        input_file="collaboration_network.edgelist",
+        output_file="node_embeddings.json"
+    ):
+        self.graph = nx.read_edgelist(
+            input_file,
+            delimiter=' ',
+            nodetype=int,
+            create_using=nx.Graph()
+        )
+        self.n_nodes = self.graph.number_of_nodes()
+        self.n_edges = self.graph.number_of_edges()
+        
+        self.walk_length = walk_length
+        self.n_walks = n_walks
+
+        self.window_size = window_size
+        self.embedding_dim = embedding_dim
+
+        self.input_file = input_file
+        self.output_file = output_file
+
+    def random_walk(self, node):
+        """ simulate a random walk of length "walk_length" starting from node "node" """
+        
+        walk = [node]
+        for _ in range(self.walk_length):
+            neighbours = list(self.graph.neighbors(walk[-1]))
+            try:
+                neighbour_choice = np.random.randint(0, len(neighbours) - 1)
+            except ValueError:
+                neighbour_choice = 0
+            walk.append(neighbours[neighbour_choice])
+        walk = [str(node) for node in walk]
+        return walk
+
+    def generate_walks(self):
+        """ run "n_walks" random walks from each node ; a walk is a list of walks,
+            and each walk is itself a list of nodes
+        """
+
+        walks = []
+        for _ in range(self.n_walks):
+            permuted_nodes = np.random.permutation(self.graph.nodes())
+            for node in tqdm(permuted_nodes):
+                walks.append(self.random_walk(node))
+        self.walks = walks
+        return walks
+
+    def deepwalk(self):
+        """ launch the deep walk algorithms, i.e, skip-gram over walks """
+
+        print("Generating walks...")
+        try:
+            walks = self.walks
+        except AttributeError:
+            walks = self.generate_walks()
+        print("Training word2vec...")
+        model = Word2Vec(
+            size=self.embedding_dim,
+            window=self.window_size,
+            min_count=0,
+            sg=1,
+            workers=8
+        )
+        model.build_vocab(walks)
+        model.train(walks, total_examples=model.corpus_count, epochs=5)
+        dic = {}
+        for word in model.wv.vocab.keys():
+            dic[word] = model.wv[word].tolist()
+        self.embeddings_dic = dic.copy()
+        self.save_model()
+        return model
+
+    def save_model(self):
+        """ store node embeddings as json """
+
+        try:
+            dic_to_save = self.embeddings_dic.copy()
+        except AttributeError as e:
+            print("no embeddings dictionnary to save ; launch deepwalk first")
+            raise e
+        with open(self.output_file, "w") as f:
+            json.dump(dic_to_save, f)
+
+    def load_embeddings(self, load_file=None):
+        """ load an embeddings json file """
+
+        dic = {}
+        if load_file:
+            f = open(load_file, "r")
+        else:
+            f = open(self.output_file, "r")
+        dic = json.load(f)
+        self.embeddings_dic = dic.copy()
+        f.close()
+        return dic

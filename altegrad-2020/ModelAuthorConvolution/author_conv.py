@@ -32,6 +32,7 @@ class AuthorConvData:
         max_input_size=500,
         input_file="author_abstracts.txt",
         target_file="train.csv",
+        node_file="node_embeddings.txt",
         path_to_data = "ModelAuthorConvolution\\data"
     ):
         self.max_input_size = max_input_size
@@ -118,8 +119,15 @@ class AuthorConvData:
             dic = json.load(f)
         self.word_embeddings = dic
         dim = len(list(dic.values())[0])
-        self.embedding_dim = dim
-    
+        self.word_embedding_dim = dim
+
+    def load_node_embeddings(self, file="node_embeddings.json"):
+        with open(file, "r") as f:
+            dic = json.load(f)
+        self.node_embeddings = dic
+        dim = len(list(dic.values())[0])
+        self.node_embedding_dim = dim
+
     def load_target_file(self):
         " turn target file into a dictionnary and return it "
 
@@ -215,10 +223,10 @@ if __name__ == "__main__":
         data.load_input_target_list()
         print("done.")
 
-    embedding_dim = data.embedding_dim
+    embedding_dim = data.word_embedding_dim
 
     # launch network
-    model = AuthorConvNet(embedding_dim=embedding_dim, max_conv_size=4, hidden_dim=200)
+    model = AuthorConvNet(embedding_dim=embedding_dim, min_conv_size=1, max_conv_size=4, hidden_dim=200)
     if not model.existing_model():
         TRAIN = True
     
@@ -226,12 +234,19 @@ if __name__ == "__main__":
     if TRAIN:
         print("fitting model")
         model.train()
-        model.fit(data=data, n_epochs=8, batch_size=32)
-        model.save_model()
+        CHECKPOINT_FILE = "author_conv_checkpoint_8.pt"
+        model.fit(data=data, n_epochs=15, batch_size=64,
+                    save_file=CHECKPOINT_FILE)
         
     else:
-        model.load_model()
+        TO_LOAD = "author_conv_checkpoint_8.pt"
+        model.load_model(load_file=TO_LOAD)
 
     # build up the predictions and put it in a csv file
+    CSV_OUTPUT = "test_predictions_8.csv"
     model.eval()
-    make_predictions(model, data)
+    make_predictions(model, data, output_file=CSV_OUTPUT)
+
+    FILES_TO_TEST = [
+        "test_predictions_8.csv"
+    ]
