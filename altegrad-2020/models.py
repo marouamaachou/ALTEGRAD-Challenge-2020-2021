@@ -5,6 +5,7 @@
         Author Convolutions ; AuthorConvNet
         PLSA ; PLSA (obsolete)
         Deep Walk ; DeepWalk
+        Graph MLP ; GNN
 """
 
 
@@ -125,9 +126,17 @@ class AuthorConvNet(nn.Module):
         save_file="author_conv_checkpoint.pt",
     ):
         if path:
-            torch.save(self.state_dict(), path + "\\" + save_file)
+            try:
+                torch.save(self.state_dict(), path + "\\" + save_file)
+            except FileNotFoundError:
+                os.mkdir(path)
+                torch.save(self.state_dict(), path + "\\" + save_file)
         else:
-            torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
+            try:
+                torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
+            except FileNotFoundError:
+                os.mkdir(self.path_to_checkpoints)
+                torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
 
     def load_model(
         self,
@@ -202,18 +211,22 @@ class AuthorConvNet(nn.Module):
         """ predict for a single author embedding matrix """
 
         if self.use_graph:
-            assert node_embedding, "node_embedding argument should be provided as an embedding array"
-            emb = node_embedding.unsqueeze(dim=0)
+            assert node_embedding is not None, (
+                "node_embedding argument should be provided as an embedding array"
+            )
         with torch.no_grad():
             mat = author_matrix.unsqueeze(dim=0)    # make it a batch of size 1
-            prediction = self.forward(mat, emb)
+            prediction = self.forward(mat, node_embedding)
         return prediction
     
     def existing_model(self):
         """ return True if a checkpoint exists in path_to_checkpoint, False otherwise """
 
         abspath = "\\".join(os.path.abspath(__file__).split("\\")[:-1])
-        if os.listdir(abspath + "\\" + self.path_to_checkpoints): return True
+        try:
+            if os.listdir(abspath + "\\" + self.path_to_checkpoints): return True
+        except FileNotFoundError:
+            return False
         return False
 
 
@@ -402,7 +415,7 @@ class GNN(nn.Module):
         self,
         embedding_dim,
         hidden_dim=200,
-        criterion=nn.L1Loss,
+        criterion=nn.L1Loss(),
         optimizer=optim.Adam,
         dropout_rate=0.3,
         path_to_checkpoints="ModelGNN\\checkpoints"
@@ -420,18 +433,18 @@ class GNN(nn.Module):
         self.linear3 = nn.Linear(hidden_dim, 1)
         self.relu = nn.ReLU()
 
-        self.path_to_checkpoint = path_to_checkpoints
+        self.path_to_checkpoints = path_to_checkpoints
 
     def forward(self, x):
         out = self.linear1(x)
         out = self.dropout(out)
         out = self.relu(out)
-        
-        out = self.linear2(x)
+
+        out = self.linear2(out)
         out = self.dropout(out)
         out = self.relu(out)
         
-        out = self.linear3(x)
+        out = self.linear3(out)
         return out
 
     def set_optimizer(self):
@@ -445,9 +458,17 @@ class GNN(nn.Module):
         save_file="GNN_checkpoint.pt",
     ):
         if path:
-            torch.save(self.state_dict(), path + "\\" + save_file)
+            try:
+                torch.save(self.state_dict(), path + "\\" + save_file)
+            except FileNotFoundError:
+                os.mkdir(path)
+                torch.save(self.state_dict(), path + "\\" + save_file)
         else:
-            torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
+            try:
+                torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
+            except:
+                os.mkdir(self.path_to_checkpoints)
+                torch.save(self.state_dict(), self.path_to_checkpoints + "\\" + save_file)
 
     def load_model(
         self,
@@ -459,19 +480,19 @@ class GNN(nn.Module):
         else:
             self.load_state_dict(torch.load(self.path_to_checkpoints + "\\" + load_file))
 
-    def make_inputs_targets(input_file="node_embeddings.json", target_file="train.csv"):
+    def make_inputs_targets(self, input_file="node_embeddings.json", target_file="train.csv"):
         """ make up inputs and targets list from input and target files so that
             both are correctly aligned
         """
 
         inputs_list, targets_list = [], []
-        with open(input_file, 'r') as f:
+        with open(input_file, "r") as f:
             emb_dic = json.load(f)
+        emb_dic = {int(k):v for k,v in emb_dic.items()}
         target_df = pd.read_csv(target_file).set_index("authorID")
         for auth, emb in emb_dic.items():
-            auth = int(auth)
             try:
-                h_index = target_df[auth]['h_index']
+                h_index = target_df.loc[auth]['h_index']
             except KeyError:
                 continue
             inputs_list.append(torch.tensor(emb))
@@ -479,7 +500,7 @@ class GNN(nn.Module):
         return inputs_list, targets_list
         
     def make_input_batch(self, batch_indexes, inputs_list):
-        batch = torch.empty(size=(len(batch_indexes), inputs_list.size(0), inputs_list.size(1)))
+        batch = torch.empty(size=(len(batch_indexes), inputs_list[0].size()[0]))
         for i, ind in enumerate(batch_indexes):
             batch[i] = inputs_list[ind]
         return batch
@@ -525,7 +546,7 @@ class GNN(nn.Module):
                     index_batch = batch_indexes[i:(i+batch_size)]
                     input_batch = self.make_input_batch(index_batch, inputs_list)
                     target_batch = targets[index_batch]
-                    # use the node_batch
+                    
                     output_batch = self.forward(input_batch)
                     loss = criterion(output_batch.flatten(), target_batch)
                     total_loss += loss.item()
@@ -546,13 +567,15 @@ class GNN(nn.Module):
         """ predict for a single node embedding vector """
 
         with torch.no_grad():
-            emb = node_embedding.unsqueeze(dim=0)    # make it a batch of size 1
-            prediction = self.forward(emb)
+            prediction = self.forward(node_embedding)
         return prediction
 
     def existing_model(self):
         """ return True if a checkpoint exists in path_to_checkpoint, False otherwise """
 
         abspath = "\\".join(os.path.abspath(__file__).split("\\")[:-1])
-        if os.listdir(abspath + "\\" + self.path_to_checkpoints): return True
+        try:
+            if os.listdir(abspath + "\\" + self.path_to_checkpoints): return True
+        except FileNotFoundError:
+            return False
         return False

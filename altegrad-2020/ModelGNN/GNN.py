@@ -22,6 +22,10 @@ def make_predictions(
     """ create a csv file containing the author indexes and the h-index predictions associated """
 
     path_to_predictions = "ModelGNN\\data"
+    try:
+        os.mkdir(path_to_predictions)
+    except FileExistsError:
+        pass
     f_in = open(input_file, "r", newline='')
     try:
         with open(embeddings_file, "r") as f:
@@ -29,14 +33,14 @@ def make_predictions(
     except ModuleNotFoundError as e:
         print("the file {} does not exist yet ; run DeepWalk.deepwalk first".format(embeddings_file))
         raise e
+    embeddings = {int(k):v for k, v in embeddings.items()}
     f_out = open(os.path.join(path_to_predictions, output_file), "w", newline='')
     
     preds = []
     df_test = pd.read_csv(input_file)
-    for i in range(len(df_test['authorID'])):
+    for i, auth in enumerate(df_test['authorID']):
         if i % 50000 == 0 and i > 0:
             print("{} nodes processed".format(i))
-        auth = str(df_test.loc[i]['authorID'])
         emb = torch.tensor(embeddings[auth])
         preds.append(model.predict(emb))
     preds = np.array(preds)
@@ -62,19 +66,22 @@ if __name__ == "__main__":
     TO_RUN_FROM = "altegrad-2020"
     if not check_running_file(TO_RUN_FROM):
         raise OSError("the file should run from \"{}\"".format(TO_RUN_FROM))
+    """
+        dw = DeepWalk()
+        
+        # check if node_embeddings.json file exists, else create it
+        if not os.path.exists("node_embeddings.json"):
+            dw.deepwalk()
+        else:
+            print("loading embeddings from deep walk...")
+            dw.load_embeddings()
 
-    dw = DeepWalk()
-    
-    # check if node_embeddings.json file exists, else create it
-    if not os.path.exists("node_embeddings.json"):
-        dw.deepwalk()
-    else:
-        dw.load_embeddings()
-
-    embedding_dim = dw.embedding_dim
+        embedding_dim = dw.embedding_dim
+    """
+    embedding_dim = 100
 
     # launch network
-    model = GNN(word_embedding_dim=embedding_dim)
+    model = GNN(embedding_dim=embedding_dim)
     if not model.existing_model():
         TRAIN = True
 

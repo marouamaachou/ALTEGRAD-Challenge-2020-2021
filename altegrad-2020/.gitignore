@@ -3,11 +3,10 @@
 *.csv
 *.json
 collaboration_network.edgelist
+data/
 
 # special
 **/__pycache__
-
-data/
 
 # objects
 objects/

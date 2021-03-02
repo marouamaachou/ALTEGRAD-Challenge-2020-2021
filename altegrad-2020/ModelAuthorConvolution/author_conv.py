@@ -179,14 +179,21 @@ def make_predictions(
     data,                    # an AuthorConvData instance
     input_file="test.csv", 
     abstracts_file="author_abstracts.txt",
+    node_file="node_embeddings.json",
     output_file="test_predictions.csv"
 ):
     """ create a csv file containing the author indexes and the h-index predictions associated """
 
     path_to_predictions = "ModelAuthorConvolution\\data"
+    try:
+        os.mkdir(path_to_predictions)
+    except FileExistsError:
+        pass
     f_in = open(input_file, "r", newline='')
     f_abs = open(abstracts_file, "r", encoding="utf8")
     f_out = open(os.path.join(path_to_predictions, output_file), "w", newline='')
+    with open(node_file, "r") as f:
+        embeddings = json.load(f)
     list_abstracts = f_abs.readlines()
     n_auths = len(f_in.readlines())
     f_in.seek(0)
@@ -215,7 +222,11 @@ def make_predictions(
         except KeyError:
             dic_writer.writerow({'authorID':auth_id, 'h_index_pred':"NAN"})
         matrix = data.make_embedding_matrix(full_abstract)
-        prediction = model.predict(matrix)
+        if model.use_graph:
+            emb = torch.tensor(embeddings[str(auth_id)])
+            prediction = model.predict(matrix, emb)
+        else:
+            prediction = model.predict(matrix)
         dic_writer.writerow({'authorID':auth_id, 'h_index_pred':round(prediction.item(), 3)})
         
     f_in.close()
@@ -229,7 +240,7 @@ def make_predictions(
 if __name__ == "__main__":
     
     # whether to train the model or not
-    TRAIN = True
+    TRAIN = False
 
     # whether to make predictions or not
     MAKE_PREDICTIONS = True
@@ -255,10 +266,9 @@ if __name__ == "__main__":
     data = AuthorConvData()
     print("loading word embeddings...")
     data.load_word_embeddings()
-    if TRAIN:
-        print("making inputs and targets lists...")
-        data.load_input_target_list()
-        print("done.")
+    print("making inputs and targets lists...")
+    data.load_input_target_list()
+    print("done.")
 
     word_embedding_dim = data.word_embedding_dim
     node_embedding_dim = data.node_embedding_dim
