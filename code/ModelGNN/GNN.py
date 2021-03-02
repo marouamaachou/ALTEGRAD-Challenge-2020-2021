@@ -9,7 +9,7 @@ import numpy as np
 path = "\\".join(os.path.abspath(__file__).split("\\")[:-2])
 sys.path.insert(0, path)
 from models import GNN, DeepWalk
-from dummy.utils import check_running_file
+from utils import check_running_file
 
 
 

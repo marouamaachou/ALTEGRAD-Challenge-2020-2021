@@ -11,7 +11,7 @@ import pickle as pkl
 
 from os import path
 
-from dummy.utils import exist_object
+from utils import exist_object
 
 
 
@@ -22,7 +22,12 @@ def abstracts_to_dict(path="abstracts_processed.txt", save=False):
         "objects\\abstracts_dict.pkl"
     """
 
-    f = open(path, "r", encoding="utf8")
+    try:
+        f = open(path, "r", encoding="utf8")
+    except FileNotFoundError as e:
+        print("the file \"{}\" does not exist yet (abstracts have not been processed) ; "
+                "run paper_representations.py first")
+        raise e
     num_lines = len(f.readlines())
     f.seek(0)
     dic = {}
@@ -51,7 +56,7 @@ def authors_to_dict(file="author_papers.txt", save=False):
 
     f = open(file, "r", encoding="utf8")
     num_lines = len(f.readlines())
-    f.seek(0)    
+    f.seek(0)
     dic = {}
     for i , l in enumerate(f):
         if l == "\n":
@@ -113,9 +118,3 @@ def concatenate_abstracts(
         f_out.write(str(auth) + ":" + ",".join(full_abs) + "\n")
     print("done.")
     f_out.close()
-
-
-
-if __name__ == "__main__":
-    if not path.exists("author_abstracts.txt"):
-        concatenate_abstracts()

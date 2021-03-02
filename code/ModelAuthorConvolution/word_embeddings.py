@@ -24,7 +24,11 @@ def write_sentences():
     """ extract sentences to feed Word2Vec model, and store them in txt file """
     
     f = open("abstracts.txt","r",encoding='utf8')
-    fw = open(os.path.join(PATH_TO_DATA, "abstracts_sentences.txt"),"w",encoding='utf8')
+    try:
+        fw = open(os.path.join(PATH_TO_DATA, "abstracts_sentences.txt"),"w",encoding='utf8')
+    except FileNotFoundError:
+        os.mkdir(PATH_TO_DATA)
+        fw = open(os.path.join(PATH_TO_DATA, "abstracts_sentences.txt"),"w",encoding='utf8')
 
     # load the inverted abstracts and store them as id-abstracts in a txt file
     dic = {}
@@ -92,7 +96,11 @@ def Word2Vec(sentences, size=100, sg=1):
 # store the embeddings
 def store_embeddings_as_json(model):
     print('storing as json dictionnary...')
-    f = open(os.path.join(PATH_TO_DATA, "word_embeddings.json"),"w")
+    try:
+        f = open(os.path.join(PATH_TO_DATA, "word_embeddings.json"),"w")
+    except FileNotFoundError:
+        os.mkdir(PATH_TO_DATA)
+        f = open(os.path.join(PATH_TO_DATA, "word_embeddings.json"),"w")
     word_vectors = {}
     for word in model.wv.vocab.keys():
         try:
@@ -104,7 +112,11 @@ def store_embeddings_as_json(model):
 
 def store_embeddings_as_txt(model):
     print('storing as text...')
-    f = open(os.path.join(PATH_TO_DATA, "word_embeddings.txt"),"w",encoding='utf8')
+    try:
+        f = open(os.path.join(PATH_TO_DATA, "word_embeddings.txt"),"w",encoding="utf8")
+    except FileNotFoundError:
+        os.mkdir(PATH_TO_DATA)
+        f = open(os.path.join(PATH_TO_DATA, "word_embeddings.txt"),"w",encoding="utf8")
     for word in model.wv.vocab.keys():
         try:
             f.write(word+":"+np.array2string(model.wv[word],

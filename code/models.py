@@ -345,7 +345,8 @@ class DeepWalk:
         """
 
         walks = []
-        for _ in range(self.n_walks):
+        for i in range(self.n_walks):
+            print("{} / {} walks generated".format(i+1, self.n_walks))
             permuted_nodes = np.random.permutation(self.graph.nodes())
             for node in tqdm(permuted_nodes):
                 walks.append(self.random_walk(node))
