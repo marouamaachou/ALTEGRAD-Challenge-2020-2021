@@ -21,10 +21,13 @@ import pickle as pkl
 import pandas as pd
 import numpy as np
 import networkx as nx
+import tensorflow as tf
 
+from tensorflow.keras.layers import Attention, LSTM , Dense, GRU, Conv1D, Dropout, Attention, Concatenate
+from tensorflow.keras import Sequential
 from tqdm import tqdm
 from gensim.models import Word2Vec
-from transformers import BertTokenizer, BertModel
+from transformers import BertTokenizer, BertModel, file_utils
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
@@ -289,8 +292,13 @@ class PLSA:
     def save_embeddings(self, embeddings, output_file="objects\\topic_embeddings.pkl"):
         """ store the array of "topic given docs" distributions in a pickle .pkl file """
 
-        with open(output_file, "wb") as f:
-            pkl.dump(embeddings, f)
+        try:
+            with open(output_file, "wb") as f:
+                pkl.dump(embeddings, f)
+        except FileNotFoundError:
+            os.mkdir("objects")
+            with open(output_file, "wb") as f:
+                pkl.dump(embeddings, f)
 
 
 
@@ -595,7 +603,12 @@ class BERT:
 
     bert_dimension = 7
 
-    def __init__(self, max_len=500, text_file="author_abstracts.txt"):
+    def __init__(
+        self,
+        max_len=500,
+        text_file="author_abstracts.txt",
+        path_to_data="ModelBert\\data"
+    ):
         self.model = BertModel.from_pretrained(
             'bert-base-uncased',
             output_hidden_states = True, # Whether the model returns all hidden-states.
@@ -604,6 +617,7 @@ class BERT:
         self.text_file = text_file
         self.max_len = max_len
         self.dimension = self.model.config.hidden_size
+        self.path_to_data = path_to_data
 
     def load_sentences(self, n_sentences=None):
         """ return a dictionnary out of the sentences file """
@@ -657,7 +671,22 @@ class BERT:
             sentence_embedding = torch.mean(token_vecs, dim=0).tolist()
         return sentence_embedding
 
+    def embeddings_to_csv(self):
+        print("pulling embeddings...")
+        try:
+            df = open(self.path_to_data + "\\" + "bert_embeddings.csv","w")
+        except FileNotFoundError:
+            os.path.mkdir(self.path_to_data)
+            df = open(self.path_to_data + "\\" + "bert_embeddings.csv","w")
+        for i, auth in enumerate(self.sentences.keys()):
+            if i % 2000 == 0 and i > 0:
+                print("{} authors processed".format(i))
+            auth = int(auth)
+            bert_embedding = self.to_embedding(bert.sentences[auth])
 
+            df.write(str(auth)+","+",".join(map(str, bert_embedding))+"\n")
+
+        df.close()
 
 
 
@@ -682,3 +711,32 @@ class Net(nn.Module):
         x = self.layer3(x)
 
         return x
+
+
+
+
+
+
+def Transformer_encoder(input_size, d_model, dff):
+    input = tf.keras.layers.Input(shape=(input_size,))
+    x = Dense(d_model)(input)
+    ## self-attention
+    query = tf.keras.layers.Dense(d_model)(input)
+    value = tf.keras.layers.Dense(d_model)(input)
+    key = tf.keras.layers.Dense(d_model)(input)
+    attention = tf.keras.layers.Attention()([query, value, key])
+    attention = tf.keras.layers.Dense(d_model)(attention)
+    x = tf.keras.layers.Add()([x , attention]) # residual connection
+    x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
+
+    ## Feed Forward
+    dense = tf.keras.layers.Dense(dff, activation='relu')(x)
+    dense = tf.keras.layers.Dense(d_model)(dense)
+    x = tf.keras.layers.Add()([x , dense])      # residual connection
+    x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
+
+    ######################################################
+
+    x = tf.keras.layers.Dense(1)(x)
+    base_model = tf.keras.models.Model(inputs=input, outputs=x)
+    return base_model

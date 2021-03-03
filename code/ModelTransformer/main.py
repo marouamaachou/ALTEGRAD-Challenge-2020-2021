@@ -3,20 +3,18 @@ import sys
 import numpy as np
 import pandas as pd
 import networkx as nx
-import torch
-import torch.nn as nn
+import tensorflow as tf 
+from tensorflow.keras.layers import Attention, Dense, Dropout,Attention, Concatenate
+from tensorflow.keras import Sequential
 
 from tqdm import tqdm
 
 path = "\\".join(os.path.abspath(__file__).split("\\")[:-2])
 sys.path.insert(0, path)
-from ModelGraphFeatures.data import *
+from ModelTransformer.data import *
+from models import Transformer_encoder
 from utils import *
-from models import *
 
-
-
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 # Set to True train_deepwalk variable 
 # if you want to train the deepwalk algorithm
@@ -36,6 +34,12 @@ TO_RUN_FROM = "code"
 if not check_running_file(TO_RUN_FROM):
     raise OSError("the file should run from \"{}/\" folder".format(TO_RUN_FROM))
 
+PATH_TO_DATA = "ModelGraphFeatures\\data"
+if not os.path.exists(PATH_TO_DATA):
+    tokens = PATH_TO_DATA.split("\\")
+    for i in range(len(tokens)):
+        os.mkdir("\\".join(tokens[:(i+1)]))
+
 
 ####################################################
 ####################################################
@@ -44,12 +48,6 @@ if not check_running_file(TO_RUN_FROM):
 ###                                              ###
 ####################################################
 ####################################################
-
-PATH_TO_DATA = "ModelGraphFeatures\\data"
-if not os.path.exists(PATH_TO_DATA):
-    tokens = PATH_TO_DATA.split("\\")
-    for i in range(len(tokens)):
-        os.mkdir("\\".join(tokens[:(i+1)]))
 
 train_file = 'train.csv'
 test_file = 'test.csv'
@@ -137,126 +135,35 @@ else:
 
 
 #Concatenate the nodes embeddings with the dataset created above
-X_train = np.concatenate((X_train, embeddings_train), axis=1)
-X_val = np.concatenate((X_val, embeddings_val), axis=1)
-X_test = np.concatenate((X_test, embeddings_test), axis=1)
+x_train = np.concatenate((X_train, embeddings_train), axis=1)
+x_val = np.concatenate((X_val, embeddings_val), axis=1)
+x_test = np.concatenate((X_test, embeddings_test), axis=1)
 
-X_train = np.concatenate((X_train, X_val), axis=0)
+X_train = np.concatenate((x_train, x_val), axis=0)
 y_train = np.concatenate((y_train, y_val), axis=0)
 
 
 
-##########################
-#### save model
+# Hyperparameters
+d_model = 64
+dff=128
 
-def save_model(model, path_to_checkpoints="ModelGraphFeatures\\checkpoints",
-                save_file="graph_features_checkpoint.pt"):
-    try:
-        torch.save(model.state_dict(), path_to_checkpoints + "\\" + save_file)
-    except FileNotFoundError:
-        os.mkdir(path_to_checkpoints)
-        torch.save(model.state_dict(), path_to_checkpoints + "\\" + save_file)    
+# Size of input vocab plus start and end tokens
+input_size = X_train.shape[1]
 
-
-
-
-
-
-#############################
-## Neural network
-
-# convert to the numpy matrices to tensors
-
-X_train = torch.FloatTensor(X_train).to(device)
-#X_val = torch.FloatTensor(X_val).to(device)
-y_train = torch.FloatTensor(y_train).to(device)#.unsqueeze(1).to(device)
-#y_val = torch.FloatTensor(y_val).unsqueeze(1).to(device)
-X_test = torch.FloatTensor(X_test).to(device)
-
-
-print("X_train shape :", X_train.size())
-print("y_train shape", y_train.size())
-
-#configurations of the neural network
-en_input_size = X_train.size(1)
-en_hidden_dim = 128
-
-
-
-def make_batch(X_train, index_batch):
-    batch = X_train[index_batch]
-    return batch
-
-
-
-
-net = Net(en_input_size, en_hidden_dim).to(device)
-
-if train_model:
-
-    # Init criterion
-    criterion = nn.L1Loss() # mae 
-
-    # Init optimizer 
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
-
-    # training settings
-
-    n_epochs = 60
-    batch_size = 64
-    n = len(X_train)
-    n_batch = n // batch_size + 1 * (n % batch_size != 0)
-    tqdm_dict = {"loss": 0.0}
-
-    net.train()
-
-    print("training...")
-    for epoch in range(n_epochs):
-        
-        with tqdm(total=n_batch, unit_scale=True, postfix={'loss':0.0},#,'test loss':0.0},
-                        desc="Epoch : %i/%i" % (epoch+1, n_epochs), ncols=100) as pbar:
-
-            batch_indexes = torch.randperm(n)
-            total_loss = 0.0
-
-            for i in range(0, n, batch_size):
-                
-                index_batch = batch_indexes[i:(i+batch_size)]
-                input_batch = make_batch(X_train, index_batch)
-                target_batch = make_batch(y_train, index_batch)
-                output_batch = net.forward(input_batch)
-                
-                loss = criterion(output_batch.flatten(), target_batch)
-                total_loss += loss.item()
-                tqdm_dict['loss'] = total_loss / (i+1)
-                pbar.set_postfix(tqdm_dict)
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                pbar.update(1)
-
-    try:
-        torch.save(net.state_dict(), "ModelGraphFeatures\\checkpoints\\graph_features_checkpoint_3.pt")
-    except FileNotFoundError:
-        os.mkdir("ModelGraphFeatures\\checkpoints")
-        torch.save(net.state_dict(), "ModelGraphFeatures\\checkpoints\\graph_features_checkpoint_3.pt")
-    print("model checkpoint saved")
-
-####################################################
-####################################################
-###                                              ###
-###                   RESULTS                    ###
-###                                              ###
-####################################################
-####################################################
+## Run model 
+base_model = Transformer_encoder(input_size, d_model, dff)
+base_model.summary() 
+callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=0.1, patience=5)
+base_model.compile(loss='mean_absolute_error', optimizer=tf.keras.optimizers.Adam(0.001))
+base_model.fit(X_train, y_train, epochs = 50, batch_size=32, callbacks=[callback])
 
 if predict:
 
+    #base_model= tf.keras.models.load_model('/Users/marouamaachou/ALTEGRAD-Challenge-2020-2021/code_samia/transformer')
     #predict y_test 
     print("\nPredicting...")
-    net.eval()
-    y_pred = net(X_test).squeeze(1).detach().numpy()
+    y_pred = np.squeeze(base_model.predict(x_test),1)
     print("\nPrediction finished.")
 
 
@@ -265,5 +172,5 @@ if predict:
     df_test = pd.read_csv(test_file, dtype={'authorID': np.int64})
     df_test['h_index_pred'].update(pd.Series(np.round_(y_pred, decimals=3)))
     df_test.loc[:,["authorID","h_index_pred"]].to_csv(
-        PATH_TO_DATA+ '\\' + 'test_predictions_what_3.csv', index=False
+        PATH_TO_DATA + "\\" + "test_predictions_transformer.csv", index=False
     )
