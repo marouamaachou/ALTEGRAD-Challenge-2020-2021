@@ -1,5 +1,7 @@
 import os
+import torch
 import numpy as np
+import scipy.sparse as sp
 
 from random import randint
 from gensim.models import Word2Vec
@@ -66,3 +68,25 @@ def deepwalk(G, num_walks, walk_length, n_dim):
     model.train(walks, total_examples=model.corpus_count, epochs=5)
 
     return model
+
+
+
+
+
+""" graph adjacency matrix utils """
+def normalize_adjacency(A):
+    """Normalize the adjacency matrix"""
+    
+    A_tilde = A + sp.identity(A.shape[0])
+    D_tilde = sp.diags(A_tilde.sum(axis=1).A1)
+    D_tilde = D_tilde.power(- 0.5)
+    A_normalized = D_tilde @ A_tilde @ D_tilde
+    return A_normalized
+
+def sparse_to_torch_sparse(M):
+    """Converts a sparse SciPy matrix to a sparse PyTorch tensor"""
+    M = M.tocoo().astype(np.float32)
+    indices = torch.from_numpy(np.vstack((M.row, M.col)).astype(np.int64))
+    values = torch.from_numpy(M.data)
+    shape = torch.Size(M.shape)
+    return torch.sparse.FloatTensor(indices, values, shape)

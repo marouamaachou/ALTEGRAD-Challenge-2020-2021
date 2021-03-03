@@ -179,7 +179,7 @@ print("y_train shape", y_train.size())
 
 #configurations of the neural network
 en_input_size = X_train.size(1)
-en_hidden_dim = 128
+en_hidden_dim = 256
 
 
 

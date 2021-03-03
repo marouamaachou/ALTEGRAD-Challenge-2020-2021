@@ -1,4 +1,4 @@
-""" In this file, we develop the classes associated to the models
+""" In this file, we develop the base classes associated to the models
     we experiments.
 
     Models currently available:
@@ -7,6 +7,8 @@
         Deep Walk ; DeepWalk
         Graph MLP ; MLP
         BERT ; BERT
+        Transformer ; transformer_encoder
+        Encoder-decoder
 """
 
 
@@ -682,10 +684,9 @@ class BERT:
             if i % 2000 == 0 and i > 0:
                 print("{} authors processed".format(i))
             auth = int(auth)
-            bert_embedding = self.to_embedding(bert.sentences[auth])
+            bert_embedding = self.to_embedding(self.sentences[auth])
 
             df.write(str(auth)+","+",".join(map(str, bert_embedding))+"\n")
-
         df.close()
 
 
@@ -740,3 +741,69 @@ def Transformer_encoder(input_size, d_model, dff):
     x = tf.keras.layers.Dense(1)(x)
     base_model = tf.keras.models.Model(inputs=input, outputs=x)
     return base_model
+
+
+
+
+
+
+class Encoder(nn.Module):
+
+    def __init__(self, input_size, hidden_dim):
+        super(Encoder, self).__init__()
+        self.input_size = input_size
+        self.hidden_dim = hidden_dim
+
+        self.layer1 = nn.Linear(self.input_size, self.hidden_dim)
+        self.layer2 = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+      
+    def forward(self, A_hat, H):
+        x = self.layer1(H)
+        x = torch.mm(A_hat, x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        #---------------
+        x = self.layer2(x)
+        x = torch.mm(A_hat, x)
+        #-----------------
+        Z = x
+
+        return Z
+
+class Decoder(nn.Module):
+
+    def __init__(self, input_size, hidden_dim, output_size):
+        super(Decoder, self).__init__()
+    
+        self.input_size = input_size #graph_size
+        self.hidden_dim = hidden_dim
+        self.output_size = output_size
+
+        self.layer1 = nn.Linear(self.input_size, self.hidden_dim)
+        self.dropout = nn.Dropout(0.5)
+        self.output_layer = nn.Linear(self.hidden_dim, self.output_size) 
+
+    def forward(self, x):
+        
+        x = self.layer1(x) 
+        x = self.dropout(x)
+        output = self.output_layer(x)
+
+        return output
+
+class Ensemble(nn.Module):
+    
+    def __init__(self, en_input_size, en_hidden_dim,
+                    de_hidden_dim, de_output_size):
+        super(Ensemble, self).__init__()
+
+        self.encoder = Encoder(en_input_size, en_hidden_dim)
+        self.decoder = Decoder(en_hidden_dim, de_hidden_dim, de_output_size)
+        
+    def forward(self, A_hat, X):
+        Z = self.encoder(A_hat, X)
+        output = self.decoder(Z)
+        
+        return output
