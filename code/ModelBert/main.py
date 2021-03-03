@@ -7,6 +7,7 @@ import pandas as pd
 
 path = "\\".join(os.path.abspath(__file__).split("\\")[:-2])
 sys.path.insert(0, path)
+from ModelAuthorConvolution.author_matrices import concatenate_abstracts
 from models import MLP, BERT
 from utils import check_running_file
 
@@ -102,6 +103,10 @@ if __name__ == "__main__":
     TO_RUN_FROM = "code"
     if not check_running_file(TO_RUN_FROM):
         raise OSError("the file should run from \"{}/\" folder".format(TO_RUN_FROM))
+
+    # check if author_abstracts.txt file exists, else create it
+    if not os.path.exists("author_abstracts.txt"):
+        concatenate_abstracts()
 
     bert = BERT()
 
