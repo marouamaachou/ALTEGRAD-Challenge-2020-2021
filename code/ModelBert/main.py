@@ -38,7 +38,7 @@ def make_inputs_targets_list(graph_file="node_embeddings.json", targets_file="tr
     targets_list = []
     print("pulling embeddings...")
     for i, auth in enumerate(bert_sentences.keys()):
-        if i % 20000 == 0 and i > 0:
+        if i % 10 == 0 and i > 0:
             print("{} authors processed".format(i))
         auth = int(auth)
         bert_embedding = bert.to_embedding(bert_sentences[auth])
