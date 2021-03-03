@@ -5,7 +5,7 @@ dim is the word embedding dimension.
 """
 
 import ast
-import json
+import os
 import numpy as np
 import pickle as pkl
 
@@ -43,8 +43,13 @@ def abstracts_to_dict(path="abstracts_processed.txt", save=False):
         dic[id] = content
     f.close()
     if save:
-        with open("objects\\abstracts_dict.pkl", "wb") as f_out:
-            pkl.dump(dic, f_out)
+        try:
+            with open("objects\\abstracts_dict.pkl", "wb") as f_out:
+                pkl.dump(dic, f_out)
+        except ModuleNotFoundError:
+            os.mkdir("data")
+            with open("objects\\abstracts_dict.pkl", "wb") as f_out:
+                pkl.dump(dic, f_out)
     return dic
 
 def authors_to_dict(file="author_papers.txt", save=False):

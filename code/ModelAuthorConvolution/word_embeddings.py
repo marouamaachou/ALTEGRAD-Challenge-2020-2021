@@ -8,7 +8,6 @@ import os
 import re
 import ast
 import gensim
-from gensim.models import word2vec
 import numpy as np
 
 from nltk.corpus import stopwords
@@ -24,11 +23,7 @@ def write_sentences():
     """ extract sentences to feed Word2Vec model, and store them in txt file """
     
     f = open("abstracts.txt","r",encoding='utf8')
-    try:
-        fw = open(os.path.join(PATH_TO_DATA, "abstracts_sentences.txt"),"w",encoding='utf8')
-    except FileNotFoundError:
-        os.mkdir(PATH_TO_DATA)
-        fw = open(os.path.join(PATH_TO_DATA, "abstracts_sentences.txt"),"w",encoding='utf8')
+    fw = open("abstracts_sentences.txt","w",encoding='utf8')
 
     # load the inverted abstracts and store them as id-abstracts in a txt file
     dic = {}
@@ -73,7 +68,7 @@ def sentences2list():
     """ make a list of sentences list out of txt file """
     print('collecting sentences...')
     sentences = []
-    with open(os.path.join(PATH_TO_DATA, "abstracts_sentences.txt"), "r", encoding='utf8') as f:
+    with open("abstracts_sentences.txt", "r", encoding='utf8') as f:
         for l in f:
             if l == '\n':
                 continue

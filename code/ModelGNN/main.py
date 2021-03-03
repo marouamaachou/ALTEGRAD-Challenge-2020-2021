@@ -8,7 +8,7 @@ import numpy as np
 
 path = "\\".join(os.path.abspath(__file__).split("\\")[:-2])
 sys.path.insert(0, path)
-from models import GNN, DeepWalk
+from models import MLP, DeepWalk
 from utils import check_running_file
 
 
@@ -26,7 +26,6 @@ def make_predictions(
         os.mkdir(path_to_predictions)
     except FileExistsError:
         pass
-    f_in = open(input_file, "r", newline='')
     try:
         with open(embeddings_file, "r") as f:
             embeddings = json.load(f)
@@ -34,7 +33,6 @@ def make_predictions(
         print("the file {} does not exist yet ; run DeepWalk.deepwalk first".format(embeddings_file))
         raise e
     embeddings = {int(k):v for k, v in embeddings.items()}
-    f_out = open(os.path.join(path_to_predictions, output_file), "w", newline='')
     
     preds = []
     df_test = pd.read_csv(input_file)
@@ -46,7 +44,7 @@ def make_predictions(
     preds = np.array(preds)
     df_test['h_index_pred'].update(pd.Series(np.round_(preds, decimals=3)))
     df_test.loc[:,["authorID","h_index_pred"]].to_csv(
-        os.path.join(path_to_predictions,output_file), index=False
+        os.path.join(path_to_predictions, output_file), index=False
     )
 
 
@@ -78,10 +76,8 @@ if __name__ == "__main__":
 
     embedding_dim = dw.embedding_dim
 
-    embedding_dim = 100
-
     # launch network
-    model = GNN(embedding_dim=embedding_dim)
+    model = MLP(embedding_dim=embedding_dim)
     if not model.existing_model():
         TRAIN = True
 

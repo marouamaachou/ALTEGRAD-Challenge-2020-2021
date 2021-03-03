@@ -5,7 +5,8 @@
         Author Convolutions ; AuthorConvNet
         PLSA ; PLSA (obsolete)
         Deep Walk ; DeepWalk
-        Graph MLP ; GNN
+        Graph MLP ; MLP
+        BERT ; BERT
 """
 
 
@@ -21,9 +22,10 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 
-from gensim.models import Word2Vec
 from tqdm import tqdm
-
+from gensim.models import Word2Vec
+from transformers import BertTokenizer, BertModel
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 class AuthorConvNet(nn.Module):
@@ -346,10 +348,10 @@ class DeepWalk:
 
         walks = []
         for i in range(self.n_walks):
-            print("{} / {} walks generated".format(i+1, self.n_walks))
             permuted_nodes = np.random.permutation(self.graph.nodes())
             for node in tqdm(permuted_nodes):
                 walks.append(self.random_walk(node))
+            print("{} / {} walks generated".format(i+1, self.n_walks))
         self.walks = walks
         return walks
 
@@ -397,8 +399,7 @@ class DeepWalk:
             f = open(load_file, "r")
         else:
             f = open(self.output_file, "r")
-        dic = json.load(f)
-        self.embeddings_dic = dic.copy()
+        self.embeddings_dic = json.load(f)
         self.embedding_dim = len(list(dic.values())[0])
         f.close()
         return dic
@@ -408,7 +409,7 @@ class DeepWalk:
 
 
 
-class GNN(nn.Module):
+class MLP(nn.Module):
     """ Fully connected neural net with node embedding input
     """
 
@@ -418,10 +419,10 @@ class GNN(nn.Module):
         hidden_dim=200,
         criterion=nn.L1Loss(),
         optimizer=optim.Adam,
-        dropout_rate=0.3,
+        dropout_rate=0.5,
         path_to_checkpoints="ModelGNN\\checkpoints"
     ):
-        super(GNN, self).__init__()
+        super(MLP, self).__init__()
         self.dropout = nn.Dropout(dropout_rate)
         self.criterion = criterion
         self.optimizer = optimizer
@@ -580,3 +581,78 @@ class GNN(nn.Module):
         except FileNotFoundError:
             return False
         return False
+
+
+
+
+class BERT:
+    """ Class to implement BERT model
+        
+        for the purpose of this implementation, we use Bert directly on 
+        full abstracts concatenation from authors (although it is supposed
+        to be used on single or couple of sentences)
+    """
+
+    bert_dimension = 7
+
+    def __init__(self, max_len=500, text_file="author_abstracts.txt"):
+        self.model = BertModel.from_pretrained(
+            'bert-base-uncased',
+            output_hidden_states = True, # Whether the model returns all hidden-states.
+        )
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.text_file = text_file
+        self.max_len = max_len
+        self.dimension = self.model.config.hidden_size
+
+    def load_sentences(self, n_sentences=None):
+        """ return a dictionnary out of the sentences file """
+        
+        print("loading abstracts...")
+        dic = {}
+        f = open(self.text_file, "r", encoding="utf8")
+        for i, l in enumerate(f):
+            if n_sentences and i > n_sentences: break
+            try:
+                pap, sentence = l.split(":")
+            except ValueError:
+                continue
+            pap = int(pap)
+            sentence = sentence[:-1].split(",")
+            dic[pap] = sentence
+        print("done.")
+        f.close
+        self.sentences = dic
+        return dic
+
+    def to_embedding(self, sentence):
+        input_ids = self.tokenizer.encode(
+            sentence,
+            add_special_tokens = True,
+            max_length = self.max_len,
+            truncation=True
+        )
+        results = pad_sequences([input_ids], maxlen=self.max_len, dtype="long",
+                                    value=0, truncating="post", padding="post")
+        
+        input_ids = results[0]
+        attention_mask = [int(i > 0) for i in input_ids]
+        
+        input_ids = torch.LongTensor(input_ids)
+        attention_mask = torch.LongTensor(attention_mask)
+
+        # make it a batch of size 1
+        input_ids = input_ids.unsqueeze(0)
+        attention_mask = attention_mask.unsqueeze(0)
+
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.model(
+                input_ids = input_ids,
+                token_type_ids = None,
+                attention_mask = attention_mask
+            )
+            hidden_states = outputs[2]
+            token_vecs = hidden_states[-2][0]
+            sentence_embedding = torch.mean(token_vecs, dim=0).tolist()
+        return sentence_embedding

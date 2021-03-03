@@ -1,7 +1,6 @@
 import os
 import sys
 import csv
-from networkx.algorithms.assortativity.neighbor_degree import average_neighbor_degree
 import torch
 import json
 import pickle as pkl
@@ -291,7 +290,7 @@ def make_predictions(
 if __name__ == "__main__":
     
     # whether to train the model or not
-    TRAIN = False
+    TRAIN = True
 
     # whether to make predictions or not
     MAKE_PREDICTIONS = True
@@ -306,7 +305,7 @@ if __name__ == "__main__":
 
     # check if word embeddings have been created, else create them
     if not check_if_exists():
-        make_embeddings(make_sentences=True)
+        make_embeddings(embedding_dim=64, make_sentences=True)
 
     # check if author_abstracts.txt file exists, else create it
     if not os.path.exists("author_abstracts.txt"):
@@ -314,7 +313,7 @@ if __name__ == "__main__":
     
     # check if node_embeddings.json file exists, else create it
     if USE_GRAPH and not os.path.exists("node_embeddings.json"):
-        DeepWalk().deepwalk()
+        DeepWalk(walk_length=40, embedding_dim=64).deepwalk()
 
     # prepare data
     data = AuthorConvData(use_graph=USE_GRAPH)
@@ -331,9 +330,9 @@ if __name__ == "__main__":
     model = AuthorConvNet(
         word_embedding_dim=word_embedding_dim,
         node_embedding_dim=node_embedding_dim,
-        dropout_rate=0.5,
+        dropout_rate=0.3,
         min_conv_size=1,
-        max_conv_size=4,
+        max_conv_size=5,
         use_graph=data.use_graph
     )
     if not model.existing_model():
@@ -343,22 +342,22 @@ if __name__ == "__main__":
     if TRAIN:
         print("fitting model")
         model.train()
-        CHECKPOINT_FILE = "author_conv_checkpoint_11.pt"
+        CHECKPOINT_FILE = "author_conv_checkpoint_12.pt"
         model.fit(data=data, n_epochs=15, batch_size=32,
                     save_file=CHECKPOINT_FILE)
         
     else:
-        TO_LOAD = "author_conv_checkpoint_11.pt"
+        TO_LOAD = "author_conv_checkpoint_12.pt"
         model.load_model(load_file=TO_LOAD)
         print("successfully loaded {}".format(TO_LOAD))
 
     # build up the predictions and put it in a csv file
-    CSV_OUTPUT = "test_predictions_11.csv"
+    CSV_OUTPUT = "test_predictions_12.csv"
     if MAKE_PREDICTIONS:
         model.eval()
         make_predictions(model, data, output_file=CSV_OUTPUT)
 
     FILES_TO_TEST = [
-        "test_predictions_10.csv",
-        "test_predictions_11.Csv"
+        "test_predictions_10.csv",          # also to generate
+        "test_predictions_12.Csv"
     ]
