@@ -4,6 +4,9 @@ https://www.kaggle.com/c/altegrad-2020/overview
 
 # Predict author's h-index based on text and graph data
 
+### Run the *best score* model :
+ - The corresponding script is located in ModelGraphFeatures ; in the console, type *python ModelGraphFeatures/main.py* 
+
 ### A few instructions and recommendations :
 
  - This github repository does not host the base data for this challenge, the data should be loaded independently in the /code folder (see kaggle link)
