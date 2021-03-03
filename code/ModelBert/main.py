@@ -120,7 +120,7 @@ if __name__ == "__main__":
         print("fitting model")
         model.train()
         CHECKPOINT_FILE = "BERT_checkpoint_1.pt"
-        model.fit(inputs_list, targets_list, n_epochs=15, batch_size=32, save_file=CHECKPOINT_FILE)
+        model.fit(inputs_list, targets_list, n_epochs=40, batch_size=32, save_file=CHECKPOINT_FILE)
         
     else:
         TO_LOAD = "BERT_checkpoint_1.pt"

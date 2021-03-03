@@ -32,6 +32,11 @@ train_model = True
 
 predict = True
 
+TO_RUN_FROM = "code"
+if not check_running_file(TO_RUN_FROM):
+    raise OSError("the file should run from \"{}/\" folder".format(TO_RUN_FROM))
+
+
 ####################################################
 ####################################################
 ###                                              ###
@@ -57,7 +62,7 @@ try:
     data = Data(train_file, test_file, embeddings_file, graph_file, author_file, val_size=0.3)
 except FileNotFoundError:
     print("the current file requires \"author_embeddings.csv\" to work ; "
-                "run paper_representations.py first")
+                "run author_representations.py first")
 
 #retrive the graph
 G = data.get_graph()
@@ -172,7 +177,7 @@ print("y_train shape", y_train.size())
 
 #configurations of the neural network
 en_input_size = X_train.size(1)
-en_hidden_dim = 256
+en_hidden_dim = 200
 
 
 
@@ -195,8 +200,8 @@ if train_model:
 
     # training settings
 
-    n_epochs = 60
-    batch_size = 64
+    n_epochs = 50
+    batch_size = 32
     n = len(X_train)
     n_batch = n // batch_size + 1 * (n % batch_size != 0)
     tqdm_dict = {"loss": 0.0}
@@ -230,10 +235,10 @@ if train_model:
                 pbar.update(1)
 
     try:
-        torch.save(net.state_dict(), "ModelGraphFeatures\\checkpoints\\graph_features_checkpoint.pt")
+        torch.save(net.state_dict(), "ModelGraphFeatures\\checkpoints\\graph_features_checkpoint_3.pt")
     except FileNotFoundError:
         os.mkdir("ModelGraphFeatures\\checkpoints")
-        torch.save(net.state_dict(), "ModelGraphFeatures\\checkpoints\\graph_features_checkpoint.pt")
+        torch.save(net.state_dict(), "ModelGraphFeatures\\checkpoints\\graph_features_checkpoint_3.pt")
     print("model checkpoint saved")
 
 ####################################################
@@ -258,5 +263,5 @@ if predict:
     df_test = pd.read_csv(test_file, dtype={'authorID': np.int64})
     df_test['h_index_pred'].update(pd.Series(np.round_(y_pred, decimals=3)))
     df_test.loc[:,["authorID","h_index_pred"]].to_csv(
-        PATH_TO_DATA+ '\\' + 'test_predictions_what.csv', index=False
+        PATH_TO_DATA+ '\\' + 'test_predictions_what_3.csv', index=False
     )
