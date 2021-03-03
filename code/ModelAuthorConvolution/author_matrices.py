@@ -47,7 +47,7 @@ def abstracts_to_dict(path="abstracts_processed.txt", save=False):
             with open("objects\\abstracts_dict.pkl", "wb") as f_out:
                 pkl.dump(dic, f_out)
         except ModuleNotFoundError:
-            os.mkdir("data")
+            os.mkdir("objects")
             with open("objects\\abstracts_dict.pkl", "wb") as f_out:
                 pkl.dump(dic, f_out)
     return dic
